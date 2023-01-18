@@ -1,5 +1,5 @@
 require("dotenv").config();
-const getOverlap = require("./overlap");
+const { compareShifts } = require("./overlap");
 const express = require("express");
 const morgan = require("morgan");
 const { PrismaClient } = require("@prisma/client");
@@ -46,7 +46,6 @@ app.get("/api/v1/question_one_shifts", async (req, res) => {
 
 app.post("/api/v1/overlap", async (req, res) => {
   try {
-    var overlap = 0;
     const question_one_shifts = await prisma.question_one_shifts.findUnique({
       where: {
         shift_id: req.body.shift1,
@@ -58,23 +57,9 @@ app.post("/api/v1/overlap", async (req, res) => {
       },
     });
 
-    if (
-      question_one_shifts.shift_date.getTime() ===
-      question_one_shifts2.shift_date.getTime()
-    ) {
-      overlap = getOverlap(question_one_shifts, question_one_shifts2);
-    }
-    const max_threshold =
-      question_one_shifts.facility_id == question_one_shifts2.facility_id
-        ? 30
-        : 0;
     res.status(200).json({
       status: "success",
-      data: {
-        overlap: overlap,
-        max_threshold: max_threshold,
-        exceeds_threshold: overlap > max_threshold,
-      },
+      data: compareShifts(question_one_shifts, question_one_shifts2),
     });
   } catch (err) {
     res.status(500).json({
