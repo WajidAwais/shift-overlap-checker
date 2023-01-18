@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+client/node_modules
+client/dist
+public
+docs
+test
+client/src/**/*.test.*
+client/src/test
+.env
+.env.*
+!.env.example
+*.log

@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: shifts
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shifts}
+      POSTGRES_DB: shifts
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shifts -d shifts"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - backend
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://shifts:${POSTGRES_PASSWORD:-shifts}@db:5432/shifts
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+      - default
+
+networks:
+  # The database is only reachable from the app container.
+  backend:
+    internal: true
+
+volumes:
+  pgdata:
