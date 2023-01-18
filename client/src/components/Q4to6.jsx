@@ -1,38 +1,13 @@
-import shiftsService from "../Services/ShiftsService";
+import { getReport } from "../api";
 
 const Q4to6 = () => {
   return (
     <div className="querysec">
-      <button
-        className="submit-btn"
-        onClick={() => {
-          shiftsService.q4().then((data) => {
-            console.log(data);
-          });
-        }}
-      >
-        Execute Q4 Query
-      </button>
-      <button
-        className="submit-btn"
-        onClick={() => {
-          shiftsService.q5().then((data) => {
-            console.log(data);
-          });
-        }}
-      >
-        Execute Q5 Query
-      </button>
-      <button
-        className="submit-btn"
-        onClick={() => {
-          shiftsService.q6().then((data) => {
-            console.log(data);
-          });
-        }}
-      >
-        Execute Q6 Query
-      </button>
+      {["q4", "q5", "q6"].map((name) => (
+        <button key={name} className="submit-btn" onClick={() => getReport(name).then(console.log)}>
+          Execute {name.toUpperCase()} Query
+        </button>
+      ))}
     </div>
   );
 };
