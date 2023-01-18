@@ -1,156 +1,104 @@
-const { compareShifts } = require("./overlap");
+const path = require("node:path");
+const fs = require("node:fs");
 const express = require("express");
-const morgan = require("morgan");
-const { PrismaClient } = require("@prisma/client");
-
-const prisma = new PrismaClient();
-
-const app = express();
-
-app.use(morgan("dev"));
-
-app.use(express.json());
-
 const cors = require("cors");
-app.use(cors());
+const morgan = require("morgan");
+const { compareShifts } = require("./overlap");
+const reports = require("./reports");
 
-app.get("/api/v1/question_one_shifts", async (req, res) => {
-  try {
-    const question_one_shifts = await prisma.question_one_shifts.findMany({
-      include: {
-        facility: {
-          select: {
-            facility_name: true,
-          },
-        },
-      },
-    });
-    res.status(200).json({
-      status: "success",
-      data: {
-        question_one_shifts: question_one_shifts,
-      },
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: "error",
-      message: err.message,
-    });
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
   }
-});
+}
 
-app.post("/api/v1/overlap", async (req, res) => {
-  try {
-    const question_one_shifts = await prisma.question_one_shifts.findUnique({
-      where: {
-        shift_id: req.body.shift1,
-      },
-    });
-    const question_one_shifts2 = await prisma.question_one_shifts.findUnique({
-      where: {
-        shift_id: req.body.shift2,
-      },
-    });
-
-    res.status(200).json({
-      status: "success",
-      data: compareShifts(question_one_shifts, question_one_shifts2),
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: "error",
-      message: err.message,
-    });
+function parseShiftId(value, field) {
+  const id = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  if (!Number.isSafeInteger(id) || id < 1) {
+    throw new HttpError(400, `${field} must be a positive integer shift id`);
   }
-});
+  return id;
+}
 
-app.get("/api/v1/q4", async function (req, res) {
-  try {
-    const result =
-      await prisma.$queryRaw`SELECT facilities.facility_id, jobs.nurse_type_needed, jobs.total_number_nurses_needed, (jobs.total_number_nurses_needed - COUNT(nurse_hired_jobs.nurse_id)) AS remaining_spots
-                                            FROM facilities
-                                            JOIN jobs ON facilities.facility_id = jobs.facility_id
-                                            LEFT JOIN nurse_hired_jobs ON jobs.job_id = nurse_hired_jobs.job_id
-                                            GROUP BY facilities.facility_id, jobs.nurse_type_needed, jobs.total_number_nurses_needed
-                                            ORDER BY facilities.facility_id, jobs.nurse_type_needed;`;
-    for (var i = 0; i < result.length; i++) {
-      result[i].remaining_spots = parseInt(result[i].remaining_spots);
+function createApp({ prisma, clientDir, logFormat = "dev" }) {
+  const app = express();
+
+  if (logFormat) app.use(morgan(logFormat));
+  app.use(cors());
+  app.use(express.json());
+
+  const api = express.Router();
+
+  api.get("/question_one_shifts", async (req, res) => {
+    const shifts = await prisma.question_one_shifts.findMany({
+      include: { facility: { select: { facility_name: true } } },
+      orderBy: [{ shift_date: "asc" }, { start_time: "asc" }, { shift_id: "asc" }],
+    });
+    res.json({ status: "success", data: { question_one_shifts: shifts } });
+  });
+
+  api.post("/overlap", async (req, res) => {
+    const body = req.body ?? {};
+    const shift1 = parseShiftId(body.shift1, "shift1");
+    const shift2 = parseShiftId(body.shift2, "shift2");
+    if (shift1 === shift2) {
+      throw new HttpError(400, "Pick two different shifts");
     }
 
-    res.status(200).json({
-      result: result,
+    const found = await prisma.question_one_shifts.findMany({
+      where: { shift_id: { in: [shift1, shift2] } },
     });
-  } catch (err) {
-    res.status(500).json({
-      status: "error",
-      message: err.message,
-    });
-  }
-});
-
-app.get("/api/v1/q5", async function (req, res) {
-  try {
-    const result = await prisma.$queryRaw`SELECT
-                                              nurses.nurse_id,
-                                              nurses.nurse_name,
-                                              nurses.nurse_type,
-                                              COUNT(DISTINCT job_remaining.job_id) AS total_remaining_jobs,
-                                              SUM(job_remaining.remaining_spots) AS remaining_spots
-                                          FROM nurses
-                                          LEFT JOIN (
-                                              SELECT
-                                                  jobs.job_id,
-                                                  jobs.nurse_type_needed ,
-                                                  jobs.total_number_nurses_needed ,
-                                                  (jobs.total_number_nurses_needed  - COUNT(DISTINCT nurse_hired_jobs.nurse_id)) AS remaining_spots
-                                              FROM jobs
-                                              LEFT JOIN nurse_hired_jobs ON jobs.job_id = nurse_hired_jobs.job_id
-                                              GROUP BY jobs.job_id, jobs.nurse_type_needed , jobs.total_number_nurses_needed
-                                          ) job_remaining ON nurses.nurse_type = job_remaining.nurse_type_needed
-                                          LEFT JOIN nurse_hired_jobs ON nurses.nurse_id = nurse_hired_jobs.nurse_id AND job_remaining.job_id = nurse_hired_jobs.job_id
-                                          WHERE nurse_hired_jobs.nurse_id IS NULL
-                                          GROUP BY nurses.nurse_id, nurses.nurse_name, nurses.nurse_type, remaining_spots
-                                          ORDER BY nurses.nurse_id`;
-    for (var i = 0; i < result.length; i++) {
-      result[i].total_remaining_jobs = parseInt(result[i].total_remaining_jobs);
+    const first = found.find((s) => s.shift_id === shift1);
+    const second = found.find((s) => s.shift_id === shift2);
+    const missing = [first ? null : shift1, second ? null : shift2].filter(Boolean);
+    if (missing.length > 0) {
+      throw new HttpError(404, `Shift not found: ${missing.join(", ")}`);
     }
-    res.status(200).json({
-      result: result,
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: "error",
-      message: err.message,
-    });
-  }
-});
 
-app.get("/api/v1/q6", async function (req, res) {
-  try {
-    const result = await prisma.$queryRaw`SELECT nurses.nurse_name
-                                          FROM nurses
-                                          JOIN nurse_hired_jobs ON nurses.nurse_id = nurse_hired_jobs.nurse_id
-                                          JOIN jobs ON nurse_hired_jobs.job_id = jobs.job_id
-                                          WHERE nurses.nurse_name != 'Anne' AND jobs.facility_id IN (
-                                            SELECT facility_id
-                                            FROM jobs
-                                            JOIN nurse_hired_jobs ON jobs.job_id = nurse_hired_jobs.job_id
-                                            JOIN nurses ON nurse_hired_jobs.nurse_id = nurses.nurse_id
-                                            WHERE nurses.nurse_name = 'Anne'
-                                          )
-                                          GROUP BY nurses.nurse_name;`;
-    res.status(200).json({
-      result: result,
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: "error",
-      message: err.message,
-    });
-  }
-});
+    let result;
+    try {
+      result = compareShifts(first, second);
+    } catch (err) {
+      throw new HttpError(422, err.message);
+    }
+    res.json({ status: "success", data: result });
+  });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+  api.get("/q4", async (req, res) => {
+    res.json({ result: await reports.openSpotsByFacility(prisma) });
+  });
+
+  api.get("/q5", async (req, res) => {
+    res.json({ result: await reports.openJobsPerNurse(prisma) });
+  });
+
+  api.get("/q6", async (req, res) => {
+    const nurse = typeof req.query.nurse === "string" && req.query.nurse.trim() ? req.query.nurse.trim() : "Anne";
+    res.json({ nurse, result: await reports.coworkersOf(prisma, nurse) });
+  });
+
+  api.use((req, res) => {
+    res.status(404).json({ status: "error", message: "Not found" });
+  });
+
+  app.use("/api/v1", api);
+
+  if (clientDir && fs.existsSync(path.join(clientDir, "index.html"))) {
+    app.use(express.static(clientDir));
+  }
+
+  // Express 5 forwards rejected promises from async handlers here.
+  app.use((err, req, res, _next) => {
+    const status = err.status ?? err.statusCode ?? 500;
+    if (status >= 500) console.error(err);
+    res.status(status).json({
+      status: "error",
+      message: status >= 500 ? "Internal server error" : err.message,
+    });
+  });
+
+  return app;
+}
+
+module.exports = { createApp, HttpError };
