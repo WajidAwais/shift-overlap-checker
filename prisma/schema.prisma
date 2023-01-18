@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model facilities {
+  facility_id         Int                   @id
+  facility_name       String?               @db.VarChar(255)
+  question_one_shifts question_one_shifts[]
+}
+
+model jobs {
+  job_id                     Int     @id
+  facility_id                Int?
+  nurse_type_needed          String? @db.VarChar(255)
+  total_number_nurses_needed Int?
+}
+
+model nurse_hired_jobs {
+  job_id   Int
+  nurse_id Int
+
+  @@id([job_id, nurse_id])
+}
+
+model nurses {
+  nurse_id   Int     @id
+  nurse_name String? @db.VarChar(255)
+  nurse_type String? @db.VarChar(255)
+}
+
+model question_one_shifts {
+  shift_id    Int         @id
+  facility    facilities? @relation(fields: [facility_id], references: [facility_id])
+  facility_id Int?
+  shift_date  DateTime?   @db.Date
+  start_time  DateTime?   @db.Time(6)
+  end_time    DateTime?   @db.Time(6)
+}
