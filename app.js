@@ -1,4 +1,3 @@
-require("dotenv").config();
 const { compareShifts } = require("./overlap");
 const express = require("express");
 const morgan = require("morgan");
@@ -11,10 +10,6 @@ const app = express();
 app.use(morgan("dev"));
 
 app.use(express.json());
-
-const bodyParser = require("body-parser");
-
-app.use(bodyParser.json());
 
 const cors = require("cors");
 app.use(cors());
